@@ -1,69 +1,119 @@
 package main
 
 import (
-    "net/http"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
 
-    "github.com/gin-gonic/gin"
-    "golang.org/x/crypto/bcrypt"
+	_ "github.com/lib/pq"
 )
 
 type User struct {
-    Email    string `json:"email"`
-    Password string `json:"password"`
+	ID       int    `json:"id"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
-var users = make(map[string]string)
+type ErrorResponse struct {
+	Error string `json:"error"`
+}
+
+var db *sql.DB
+
+// Конфигурация базы данных
+const (
+	host     = "localhost"
+	port     = 5432
+	user     = "postgres"
+	password = "postgres"
+	dbname   = "GoBD"
+)
 
 func main() {
-    router := gin.Default()
+	// Подключение к базе данных
+	connStr := fmt.Sprintf(
+		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+		host, port, user, password, dbname)
 
-    router.POST("/register", registerHandler)
-    router.POST("/login", loginHandler)
-    router.GET("/profile", profileHandler)
+	var err error
+	db, err = sql.Open("postgres", connStr)
+	if err != nil {
+		log.Fatal("Ошибка подключения к базе данных:", err)
+	}
+	defer db.Close()
 
-    router.Run(":8080")
+	// Создание таблицы пользователей, если её нет
+	createUserTable()
+
+	// Роуты для HTTP API
+	http.HandleFunc("/register", registerHandler)
+	http.HandleFunc("/login", loginHandler)
+
+	// Запуск HTTP сервера на порту 8080
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func registerHandler(c *gin.Context) {
-    var user User
-    if err := c.ShouldBindJSON(&user); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
-
-    hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-    if err != nil {
-        c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to hash password"})
-        return
-    }
-
-    users[user.Email] = string(hashedPassword)
-    c.Status(http.StatusCreated)
+func createUserTable() {
+	_, err := db.Exec(`CREATE TABLE IF NOT EXISTS users (
+		id SERIAL PRIMARY KEY,
+		username VARCHAR(50) UNIQUE,
+		password VARCHAR(100))`)
+	if err != nil {
+		log.Fatal("Ошибка создания таблицы пользователей:", err)
+	}
 }
 
-func loginHandler(c *gin.Context) {
-    var user User
-    if err := c.ShouldBindJSON(&user); err != nil {
-        c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-        return
-    }
+// Регистрация нового пользователя
+func registerHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-    hashedPassword, ok := users[user.Email]
-    if !ok {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
-        return
-    }
+	_, err = db.Exec(
+		"INSERT INTO users (username, password) VALUES ($1, $2)",
+		user.Username, user.Password)
+	if err != nil {
+		http.Error(w, "Пользователь с таким логином уже существует", http.StatusConflict)
+		return
+	}
 
-    if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(user.Password)); err != nil {
-        c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
-        return
-    }
-
-    c.Status(http.StatusOK)
+	w.WriteHeader(http.StatusCreated)
 }
 
-func profileHandler(c *gin.Context) {
-    // Получить информацию о текущем пользователе из сессии или токена
-    // В этом примере просто отправляем OK, так как это демонстрационный пример
-    c.Status(http.StatusOK)
+// Аутентификация пользователя
+func loginHandler(w http.ResponseWriter, r *http.Request) {
+	var user User
+	err := json.NewDecoder(r.Body).Decode(&user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	row := db.QueryRow(
+		"SELECT id FROM users WHERE username = $1 AND password = $2",
+		user.Username, user.Password)
+
+	var userID int
+	err = row.Scan(&userID)
+	if err != nil {
+		row := db.QueryRow(
+			"SELECT COUNT(*) FROM users WHERE username = $1",
+			user.Username)
+		err = row.Scan()
+		if err != nil {
+			http.Error(w, "Неверный логин или пароль", http.StatusUnauthorized)
+			return
+		}
+		http.Error(w, "Ошибка аутентификации", http.StatusInternalServerError)
+		return
+	}
+
+	// Отправка ID пользователя в ответе
+	response := map[string]int{"userID": userID}
+	json.NewEncoder(w).Encode(response)
 }

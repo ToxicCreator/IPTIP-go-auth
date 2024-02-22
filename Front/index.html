@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Профиль</title>
+    </head>
+    <body>
+        <h1>Authentication Form</h1>
+        <form id="loginForm">
+            <label for="username">Логин:</label><br>
+            <input type="text" id="username" name="username" required><br>
+            <label for="password">Пароль:</label><br>
+            <input type="password" id="password" name="password" required><br><br>
+            <button id="loginButton">Войти</button> <button id="registerButton">Зарегестрироваться</button><br><br>
+            <span id="errorText" style="color: red;"></span><br>
+            <span id="profileId"></span>
+        </form>
+
+        <script>
+            const RELATIVE_PATH = "http://127.0.0.1:8080"
+            document.getElementById("loginButton").addEventListener("click", async function(event) {
+                event.preventDefault();
+                const profileId = document.getElementById("profileId");
+                const errorText = document.getElementById("errorText");
+
+                // Получаем значения логина и пароля из формы
+                const user = {
+                    username: document.getElementById("username").value,
+                    password: document.getElementById("password").value
+                };
+
+                if (!user.username || !user.password) return;
+
+                // Отправляем данные на сервер для аутентификации
+                const request = {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(user)
+                };
+                const response = await fetch(`${RELATIVE_PATH}/login`, request);
+                if (!response.ok) {
+                    profileId.innerText = "";
+                    errorText.innerText = await response.text();
+                } else {
+                    errorText.innerText = "";
+                    const {userID} = await response.json();
+                    profileId.innerText = `Профиль с ID: ${userID}`;
+                }
+            });
+
+            document.getElementById("registerButton").addEventListener("click", async function(event) {
+                event.preventDefault();
+                const profileId = document.getElementById("profileId");
+                const errorText = document.getElementById("errorText");
+
+                // Получаем значения логина и пароля из формы
+                const user = {
+                    username: document.getElementById("username").value,
+                    password: document.getElementById("password").value
+                };
+
+                if (!user.username || !user.password) return;
+
+                // Отправляем данные на сервер для аутентификации
+                const request = {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify(user)
+                };
+                const response = await fetch(`${RELATIVE_PATH}/register`, request);
+                if (!response.ok) {
+                    profileId.innerText = "";
+                    errorText.innerText = await response.text();
+                } else {
+                    errorText.innerText = "";
+                    const {userID} = await response.json();
+                    profileId.innerText = `Профиль с ID: ${userID}`;
+                }
+            });
+        </script>
+    </body>
+</html>
